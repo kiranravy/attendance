@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Class Attendance</title>
+  <style>
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: #f0ebf8; font-family: Roboto, Arial, sans-serif; color: #202124; }
+    .wrap { max-width: 640px; margin: 0 auto; padding: 12px 12px 40px; }
+    .card { background: #fff; border-radius: 8px; border: 1px solid #dadce0; padding: 20px 22px; margin-bottom: 12px; }
+    .header { border-top: 10px solid #673ab7; }
+    h1 { font-size: 26px; font-weight: 400; margin: 0 0 8px; }
+    .sub { color: #5f6368; font-size: 14px; margin: 0; }
+    .req { color: #d93025; }
+    label.q { display: block; font-size: 16px; margin-bottom: 12px; }
+    .hint { color: #5f6368; font-size: 13px; margin: -6px 0 12px; }
+    input[type=text], select {
+      width: 100%; font-size: 16px; padding: 10px 4px; border: none; border-bottom: 1px solid #dadce0;
+      background: transparent; outline: none; font-family: inherit; color: inherit;
+    }
+    input[type=text]:focus, select:focus { border-bottom: 2px solid #673ab7; }
+    .btn {
+      background: #673ab7; color: #fff; border: none; border-radius: 4px; padding: 12px 26px;
+      font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit;
+    }
+    .btn:disabled { background: #b39ddb; cursor: default; }
+    .btn-outline {
+      display: inline-block; background: #fff; border: 1px solid #673ab7; color: #673ab7; border-radius: 4px;
+      padding: 10px 18px; font-size: 15px; cursor: pointer; font-weight: 500; font-family: inherit;
+    }
+    .cam { width: 100%; max-width: 360px; }
+    #video, #preview { display: block; width: 100%; border-radius: 8px; border: 1px solid #dadce0; background: #000; }
+    #video { transform: scaleX(-1); aspect-ratio: 3 / 4; object-fit: cover; }
+    .cam-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .loc { padding: 12px 14px; border-radius: 6px; font-size: 14px; line-height: 1.45; }
+    .loc.pending { background: #f1f3f4; color: #3c4043; }
+    .loc.ok { background: #e6f4ea; color: #137333; }
+    .loc.bad { background: #fce8e6; color: #c5221f; }
+    .loc.warn { background: #fef7e0; color: #8a5300; }
+    .link { background: none; border: none; color: #673ab7; padding: 8px 0 0; font-size: 14px; cursor: pointer; }
+    .err { background: #fce8e6; color: #c5221f; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; font-size: 14px; }
+    .done h2 { font-weight: 400; margin: 0 0 10px; }
+    .mono { font-family: monospace; font-size: 15px; background: #f1f3f4; padding: 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card header">
+    <h1 id="title">Class Attendance</h1>
+    <p class="sub" id="subtitle">You must be at the class location to submit. <span class="req">*</span> Required</p>
+  </div>
+
+  <div id="loading" class="card">Loading…</div>
+
+  <!-- ===== Attendance form ===== -->
+  <div id="formView" hidden>
+    <div class="card">
+      <label class="q" for="name">Name <span class="req">*</span></label>
+      <input type="text" id="name" autocomplete="name" placeholder="Your full name" maxlength="80">
+    </div>
+
+    <div class="card">
+      <label class="q" for="branch">Branch <span class="req">*</span></label>
+      <select id="branch"><option value="">Choose</option></select>
+    </div>
+
+    <div class="card">
+      <label class="q" for="semester">Semester <span class="req">*</span></label>
+      <select id="semester"><option value="">Choose</option></select>
+    </div>
+
+    <div class="card">
+      <label class="q">Selfie <span class="req">*</span></label>
+      <p class="hint">Take a live photo of your face with the front camera. Photos from the gallery are not accepted.</p>
+      <div class="cam">
+        <video id="video" playsinline muted autoplay hidden></video>
+        <img id="preview" alt="Your selfie" hidden>
+      </div>
+      <div class="cam-actions">
+        <button type="button" class="btn-outline" id="openCam">📷 Open camera</button>
+        <button type="button" class="btn" id="snap" hidden>Capture</button>
+        <button type="button" class="btn-outline" id="retake" hidden>Retake</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label class="q">Location</label>
+      <div id="loc" class="loc pending">Checking your location…</div>
+      <button type="button" class="link" id="retryLoc" hidden>Retry location</button>
+    </div>
+
+    <div id="err" class="err" hidden></div>
+    <button class="btn" id="submit">Submit</button>
+  </div>
+
+  <!-- ===== Success ===== -->
+  <div id="doneView" class="card done" hidden>
+    <h2>✅ Attendance recorded</h2>
+    <p id="doneText"></p>
+  </div>
+
+  <!-- ===== Admin: find coordinates (?mode=locate) ===== -->
+  <div id="locateView" class="card" hidden>
+    <label class="q">Find this spot's coordinates</label>
+    <p class="hint">Stand at the centre of the classroom. Wait until accuracy is low (ideally under 20 m), then copy these into TARGET_LAT / TARGET_LNG in Code.gs.</p>
+    <div id="coords" class="mono">Waiting for GPS…</div>
+  </div>
+</div>
+
+<script>
+  // ============ PASTE YOUR APPS SCRIPT WEB APP URL HERE ============
+  const API_URL = 'https://script.google.com/macros/s/AKfycbxzq812VgKrQB5qfASFMiijjIsqrpLxnOKcbCBKpY_1p7Dg8W1wlGWg4AjWEqrsQQl1/exec';
+  // ================================================================
+
+  const $ = id => document.getElementById(id);
+  const LOCATE = new URLSearchParams(location.search).get('mode') === 'locate';
+  const SELFIE_MAX_AGE_MS = 5 * 60 * 1000; // selfie must be taken within 5 min of submitting
+  let CFG = null, photoData = null, capturedAt = 0, watchId = null, stream = null;
+
+  function showErr(msg) { $('err').textContent = msg; $('err').hidden = false; $('err').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  function hideErr() { $('err').hidden = true; }
+  function showLoc(cls, msg) { const el = $('loc'); el.className = 'loc ' + cls; el.textContent = msg; }
+
+  function distM(lat1, lng1, lat2, lng2) {
+    const R = 6371000, r = x => x * Math.PI / 180;
+    const dLat = r(lat2 - lat1), dLng = r(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  function geoErrorText(e) {
+    if (e.code === 1) return 'Location permission was denied. Allow location for this page in your browser settings, then tap Retry.';
+    if (e.code === 3) return 'Location took too long. Make sure GPS/Location is turned on, then tap Retry.';
+    return 'Could not get your location. Turn on GPS/Location and tap Retry.';
+  }
+
+  // ---------- Live location (for display) ----------
+  function startWatch() {
+    $('retryLoc').hidden = true;
+    if (!navigator.geolocation) { showLoc('bad', 'This browser cannot share location. Open the link in Chrome or Safari.'); return; }
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    if (!LOCATE) showLoc('pending', 'Checking your location…');
+    watchId = navigator.geolocation.watchPosition(onPos, e => {
+      if (LOCATE) { $('coords').textContent = geoErrorText(e); return; }
+      showLoc('bad', geoErrorText(e)); $('retryLoc').hidden = false;
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  }
+
+  function onPos(p) {
+    const { latitude: lat, longitude: lng, accuracy: acc } = p.coords;
+    if (LOCATE) {
+      $('coords').textContent = `TARGET_LAT: ${lat.toFixed(6)},\nTARGET_LNG: ${lng.toFixed(6)},\n(accuracy ±${Math.round(acc)} m)`;
+      return;
+    }
+    const d = distM(lat, lng, CFG.lat, CFG.lng);
+    if (acc > CFG.maxAccuracy) {
+      showLoc('warn', `Weak GPS signal (±${Math.round(acc)} m). Move near a window or the door and wait a few seconds.`);
+    } else if (d <= CFG.radius) {
+      showLoc('ok', `✓ You are at the class location (about ${Math.round(d)} m from the centre).`);
+    } else {
+      showLoc('bad', `✗ You are about ${Math.round(d)} m away. You must be within ${CFG.radius} m to submit.`);
+    }
+  }
+
+  function freshFix() {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+        e => reject(new Error(geoErrorText(e))),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    });
+  }
+
+  // ---------- Selfie: live front camera only (no file / gallery input) ----------
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    $('video').srcObject = null;
+  }
+
+  async function openCamera() {
+    hideErr();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return showErr('Your browser cannot open the camera. Please open this link in Chrome (Android) or Safari (iPhone).');
+    }
+    try {
+      stopCamera();
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 960 } }, audio: false
+      });
+      const v = $('video');
+      v.srcObject = stream;
+      await v.play().catch(() => {});
+      photoData = null;
+      v.hidden = false; $('preview').hidden = true;
+      $('openCam').hidden = true; $('retake').hidden = true; $('snap').hidden = false;
+    } catch (e) {
+      const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      showErr(denied
+        ? 'Camera permission was denied. iPhone: Settings → Safari → Camera → Allow (or tap "aA" in the address bar → Website Settings). Android: tap the icon left of the address → Permissions → Camera. Then tap Open camera again.'
+        : 'Could not start the camera. Close other apps using the camera and try again.');
+    }
+  }
+
+  function capture() {
+    const v = $('video');
+    if (!v.videoWidth) return showErr('Camera is still starting. Wait a second and tap Capture again.');
+    const max = 720, s = Math.min(1, max / Math.max(v.videoWidth, v.videoHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(v.videoWidth * s);
+    c.height = Math.round(v.videoHeight * s);
+    const ctx = c.getContext('2d');
+    ctx.translate(c.width, 0); ctx.scale(-1, 1);   // match the mirrored preview
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    photoData = c.toDataURL('image/jpeg', 0.8);
+    capturedAt = Date.now();
+    stopCamera();
+    $('preview').src = photoData;
+    $('preview').hidden = false; v.hidden = true;
+    $('snap').hidden = true; $('retake').hidden = false;
+  }
+
+  $('openCam').addEventListener('click', openCamera);
+  $('retake').addEventListener('click', openCamera);
+  $('snap').addEventListener('click', capture);
+  $('retryLoc').addEventListener('click', startWatch);
+
+  // ---------- Submit ----------
+  $('submit').addEventListener('click', async () => {
+    hideErr();
+    const name = $('name').value.trim();
+    const branch = $('branch').value, semester = $('semester').value;
+    if (!name) return showErr('Please enter your name.');
+    if (!branch) return showErr('Please choose your branch.');
+    if (!semester) return showErr('Please choose your semester.');
+    if (!photoData) return showErr('Please take a selfie with the camera.');
+    if (Date.now() - capturedAt > SELFIE_MAX_AGE_MS) {
+      photoData = null; $('preview').hidden = true; $('retake').hidden = true; $('openCam').hidden = false;
+      return showErr('Your selfie is more than 5 minutes old. Please take a new one.');
+    }
+    if (!navigator.geolocation) return showErr('This browser cannot share location. Open the link in Chrome or Safari.');
+
+    const btn = $('submit');
+    const reset = () => { btn.disabled = false; btn.textContent = 'Submit'; };
+    btn.disabled = true; btn.textContent = 'Verifying location…';
+    let fix;
+    try { fix = await freshFix(); } catch (e) { reset(); return showErr(e.message); }
+
+    btn.textContent = 'Submitting…';
+    try {
+      // text/plain body avoids a CORS preflight, which Apps Script does not support
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ name, branch, semester, lat: fix.lat, lng: fix.lng, accuracy: fix.acc, photo: photoData })
+      });
+      const r = await res.json();
+      if (!r.ok) { reset(); return showErr(r.error || 'Submission failed. Please try again.'); }
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      $('formView').hidden = true;
+      $('doneView').hidden = false;
+      $('doneText').textContent = `${r.name}, your attendance was recorded on ${r.time}. You can close this page.`;
+      window.scrollTo(0, 0);
+    } catch (e) {
+      reset();
+      showErr('Could not reach the server. Check your internet connection and try again.');
+    }
+  });
+
+  // ---------- Start ----------
+  function fill(sel, items) {
+    items.forEach(v => { const o = document.createElement('option'); o.value = o.textContent = v; sel.appendChild(o); });
+  }
+
+  if (LOCATE) {
+    $('loading').hidden = true;
+    $('locateView').hidden = false;
+    $('subtitle').textContent = 'Admin tool: read the GPS coordinates of where you are standing.';
+    startWatch();
+  } else {
+    fetch(API_URL)
+      .then(r => r.json())
+      .then(cfg => {
+        CFG = cfg;
+        $('title').textContent = document.title = cfg.title;
+        fill($('branch'), cfg.branches);
+        fill($('semester'), cfg.semesters);
+        $('loading').hidden = true;
+        $('formView').hidden = false;
+        startWatch();
+      })
+      .catch(() => {
+        $('loading').textContent = 'Could not load the form. Check your internet connection and reload the page.';
+      });
+  }
+</script>
+</body>
+</html>

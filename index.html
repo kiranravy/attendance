@@ -70,13 +70,13 @@
     </div>
 
     <div class="card">
-      <label class="q" for="semester">Semester <span class="req">*</span></label>
-      <select id="semester"><option value="">Choose</option></select>
+      <label class="q" for="year">Year <span class="req">*</span></label>
+      <select id="year"><option value="">Choose</option></select>
     </div>
 
     <div class="card">
       <label class="q" for="name">Name <span class="req">*</span></label>
-      <select id="name" disabled><option value="">Choose branch and semester first</option></select>
+      <select id="name" disabled><option value="">Choose branch and year first</option></select>
     </div>
 
     <div class="card">
@@ -142,9 +142,9 @@
 
 <script>
   // ============ PASTE YOUR APPS SCRIPT WEB APP URL HERE ============
-  const API_URL = 'https://script.google.com/macros/s/AKfycbyjOdmK7fl4g8dAlGfze3dK1zoIDVvIHmc3JD9hj4WxStunZ6jtesHoycn1R0mhuQYd/exec';
+  const API_URL = 'https://script.google.com/macros/u/1/s/AKfycbyjOdmK7fl4g8dAlGfze3dK1zoIDVvIHmc3JD9hj4WxStunZ6jtesHoycn1R0mhuQYd/exec';
   // ================================================================
-  
+
   const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model/';
   const SELFIE_MAX_AGE_MS = 5 * 60 * 1000;
   const MODE = new URLSearchParams(location.search).get('mode');
@@ -248,12 +248,12 @@
   let listReq = 0;
   async function loadNames() {
     resetFace();
-    const branch = $('branch').value, semester = $('semester').value, sel = $('name');
-    if (!branch || !semester) { fill(sel, [], 'Choose branch and semester first'); sel.disabled = true; return; }
+    const branch = $('branch').value, year = $('year').value, sel = $('name');
+    if (!branch || !year) { fill(sel, [], 'Choose branch and year first'); sel.disabled = true; return; }
     const my = ++listReq;
     fill(sel, [], 'Loading names…'); sel.disabled = true;
     try {
-      const r = await apiGet({ api: 'students', branch, semester });
+      const r = await apiGet({ api: 'students', branch, year });
       if (my !== listReq) return;
       if (!r.ok) throw new Error(r.error);
       if (!r.students.length) { fill(sel, [], 'No students listed for this class'); return; }
@@ -287,7 +287,7 @@
 
   async function openCamera() {
     hideErr();
-    if (!$('name').value) return showErr('Please choose your branch, semester and name first.');
+    if (!$('name').value) return showErr('Please choose your branch, year and name first.');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       return showErr('Your browser cannot open the camera. Please open this link in Chrome (Android) or Safari (iPhone).');
     }
@@ -331,7 +331,7 @@
       if (f.error === 'noface') { setStatus($('faceStatus'), 'bad', '✗ No face found. Face the camera in good light and retake.'); return; }
       if (f.error === 'multi') { setStatus($('faceStatus'), 'bad', '✗ More than one face in the photo. Make sure only you are in the picture and retake.'); return; }
       descriptor = f.descriptor;
-      const r = await apiPost({ action: 'verify', name, branch: $('branch').value, semester: $('semester').value, descriptor });
+      const r = await apiPost({ action: 'verify', name, branch: $('branch').value, year: $('year').value, descriptor });
       if ($('name').value !== name) return;              // user changed name meanwhile
       if (!r.ok) { setStatus($('faceStatus'), 'bad', '✗ ' + r.error); return; }
       if (r.match) {
@@ -351,8 +351,8 @@
   // ---------- submit ----------
   async function submit() {
     hideErr();
-    const name = $('name').value, branch = $('branch').value, semester = $('semester').value;
-    if (!branch || !semester || !name) return showErr('Please choose your branch, semester and name.');
+    const name = $('name').value, branch = $('branch').value, year = $('year').value;
+    if (!branch || !year || !name) return showErr('Please choose your branch, year and name.');
     if (!faceOK || !descriptor) return showErr('Please take a selfie and wait for the face check.');
     if (Date.now() - capturedAt > SELFIE_MAX_AGE_MS) { resetFace(); return showErr('Your selfie is more than 5 minutes old. Please take a new one.'); }
     if (!navigator.geolocation) return showErr('This browser cannot share location. Open the link in Chrome or Safari.');
@@ -365,7 +365,7 @@
 
     btn.textContent = 'Submitting…';
     try {
-      const body = { name, branch, semester, lat: fix.lat, lng: fix.lng, accuracy: fix.acc, descriptor };
+      const body = { name, branch, year, lat: fix.lat, lng: fix.lng, accuracy: fix.acc, descriptor };
       if (photoData) body.photo = photoData;
       const r = await apiPost(body);
       if (!r.ok) { reset(); return showErr(r.error || 'Submission failed. Please try again.'); }
@@ -397,7 +397,7 @@
       const tr = document.createElement('tr');
       const st = s.msg || (s.enrolled ? '✓ Ready' : (s.hasPhoto ? 'Not set up yet' : 'No photo'));
       const cls = s.cls || (s.enrolled ? 'ok-t' : (s.hasPhoto ? 'muted' : 'bad-t'));
-      [s.name, s.branch + ', ' + s.semester, st].forEach((t, i) => {
+      [s.name, s.branch + ', ' + s.year + ' Year', st].forEach((t, i) => {
         const td = document.createElement('td'); td.textContent = t; if (i === 2) td.className = cls; tr.appendChild(td);
       });
       tb.appendChild(tr);
@@ -448,7 +448,7 @@
 
   // ---------- wire up ----------
   $('branch').addEventListener('change', loadNames);
-  $('semester').addEventListener('change', loadNames);
+  $('year').addEventListener('change', loadNames);
   $('name').addEventListener('change', resetFace);
   $('openCam').addEventListener('click', openCamera);
   $('retake').addEventListener('click', openCamera);
@@ -475,7 +475,7 @@
         CFG = cfg;
         $('title').textContent = document.title = cfg.title;
         fill($('branch'), cfg.branches, 'Choose');
-        fill($('semester'), cfg.semesters, 'Choose');
+        fill($('year'), cfg.years, 'Choose');
         $('loading').hidden = true; $('formView').hidden = false;
         readyStatus();
         startWatch();

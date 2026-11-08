@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Class Attendance</title>
+  <!-- Object detection (finds phones / screens held up to the camera) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <!-- Face recognition -->
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
   <style>
     * { box-sizing: border-box; }
@@ -150,7 +154,12 @@
   const MODE = new URLSearchParams(location.search).get('mode');
   const $ = id => document.getElementById(id);
 
-  let CFG = null, watchId = null, stream = null;
+  let CFG = null, watchId = null, stream = null, lastPos = null;
+
+  // Devices that may mean someone is showing a video call instead of their own face.
+  // ('tv' is the detector's name for any TV or monitor screen.)
+  const DEVICE_CLASSES = { 'cell phone': 'Phone', 'tv': 'TV/Monitor', 'laptop': 'Laptop' };
+  const DEVICE_MIN_SCORE = 0.45;   // lower = more sensitive
   let photoData = null, descriptor = null, capturedAt = 0, faceOK = false;
 
   // ---------- small helpers ----------
@@ -175,6 +184,28 @@
   }
 
   // ---------- face models ----------
+  // ---------- phone / screen detector ----------
+  let detectorReady = null;
+  function loadDetector() {
+    if (!detectorReady) {
+      detectorReady = (async () => {
+        if (typeof cocoSsd === 'undefined' || typeof tf === 'undefined') throw new Error('Phone check could not load. Check your internet and reload the page.');
+        return cocoSsd.load({ base: 'lite_mobilenet_v2' });
+      })();
+      detectorReady.catch(() => { detectorReady = null; });
+    }
+    return detectorReady;
+  }
+
+  /** Returns every phone / TV / monitor / laptop seen in the image, e.g. [{label:'Phone', score:0.82}] */
+  async function findDevices(canvas) {
+    const model = await loadDetector();
+    const preds = await model.detect(canvas, 10);
+    return preds
+      .filter(p => DEVICE_CLASSES[p.class] && p.score >= DEVICE_MIN_SCORE)
+      .map(p => ({ label: DEVICE_CLASSES[p.class], score: Math.round(p.score * 100) / 100 }));
+  }
+
   let modelsReady = null;
   function loadModels() {
     if (!modelsReady) {
@@ -226,6 +257,7 @@
   }
   function onPos(p) {
     const { latitude: lat, longitude: lng, accuracy: acc } = p.coords;
+    lastPos = { lat, lng };
     if (MODE === 'locate') {
       $('coords').textContent = `TARGET_LAT: ${lat.toFixed(6)},\nTARGET_LNG: ${lng.toFixed(6)},\n(accuracy ±${Math.round(acc)} m)`;
       return;
@@ -327,6 +359,19 @@
     const name = $('name').value;
     setStatus($('faceStatus'), 'pending', 'Checking your face… (the first time can take up to 30 seconds)');
     try {
+      // 1) Look for a phone / TV / monitor / laptop. If found, quietly save the photo
+      //    for the teacher; the student is not told and can still submit.
+      try {
+        const devices = await findDevices(c);
+        if (devices.length) {
+          apiPost({
+            action: 'flag', name, branch: $('branch').value, year: $('year').value,
+            detected: devices, photo: c.toDataURL('image/jpeg', 0.8),
+            lat: lastPos && lastPos.lat, lng: lastPos && lastPos.lng
+          }).catch(() => {});
+        }
+      } catch (e) { /* device check unavailable – carry on with the face check */ }
+      // 2) Check the face against the student's photo on record
       const f = await describeFace(c, true);
       if (f.error === 'noface') { setStatus($('faceStatus'), 'bad', '✗ No face found. Face the camera in good light and retake.'); return; }
       if (f.error === 'multi') { setStatus($('faceStatus'), 'bad', '✗ More than one face in the photo. Make sure only you are in the picture and retake.'); return; }
@@ -480,6 +525,7 @@
         readyStatus();
         startWatch();
         loadModels().catch(e => setStatus($('faceStatus'), 'bad', e.message));
+        loadDetector().catch(() => {});
       })
       .catch(() => { $('loading').textContent = 'Could not load the form. Check your internet connection and reload the page.'; });
   }
